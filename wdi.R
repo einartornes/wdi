@@ -7,20 +7,27 @@ library(tidyverse)
 library(WDI)
 library(countrycode)
 library(here)
+library(credentials)
+library(gitcreds)
 
 # Load and prepare data ---------------------------------------------------
 
 # Searching for GE-indicator
-WDIsearch('government effectiveness')
+WDIsearch('control of corruption')
 
 # WGI-indicator Government effectiveness
-wgi_raw <- WDI(indicator='GE.EST', start=1996, end=2019)
-
+wgi_raw <- WDI(
+  indicator=c("GE.EST", "RL.EST", "RQ.EST", "CC.EST"),
+  start=1996,end=2020)
 
 # Including iso3c column from package countrycode
 df_wgi <- wgi_raw %>%
   mutate(iso3c = countrycode(iso2c, origin = "iso2c", destination = "iso3c")) %>%
-  select(iso3c, country, year, GE.EST)
+  select(-iso2c) %>%
+  relocate(iso3c)
+
+# Include column average for all four estimates
+df_wgi$ALL.EST <- rowMeans(df_wgi[ , c("GE.EST","RL.EST", "RQ.EST", "CC.EST")])
 
 # Repair unmatched iso2c-codes: AN and XK.
 
@@ -35,34 +42,38 @@ df <- left_join(df_wgi, df_wb, by = c("iso3c"="code", "year"="year"))
 # Some anti joins
 anti <- anti_join(df_wgi, df_wb, by = c("iso3c"="code", "year"="year"))
 
-
 # Line plot by income group ---------------------------------------------------------------
 
-# Dataset for plot
+# Dataset for plot by income group averages
 df_plot <- df %>%
   mutate(category = na_if(category, "..")) %>%
   filter(!is.na(category)) %>%
-  filter(!is.na(GE.EST)) %>%
+  filter(!is.na(ALL.EST)) %>%
   group_by(category, year) %>%
-  summarise(GE.EST = mean(GE.EST)) %>%
+  summarise(
+    GE.EST = mean(GE.EST),
+    RL.EST = mean(RL.EST),
+    RQ.EST = mean(RQ.EST),
+    CC.EST = mean(CC.EST),
+    ALL.EST = mean(ALL.EST)) %>%
   ungroup() %>%
   mutate(category = case_when(
-    category == "H" ~ "HÃ¸yinntektsland",
-    category == "UM" ~ "HÃ¸yere mellominntektsland",
+    category == "H" ~ "Høyinntektsland",
+    category == "UM" ~ "Høyere mellominntektsland",
     category == "LM" ~ "Lavere mellominntektsland",
     category == "L" ~ "Lavinntektsland")) %>%
-  mutate(category = fct_reorder(category, GE.EST, .desc = TRUE))
+  mutate(category = fct_reorder(category, ALL.EST, .desc = TRUE))
 
 # Save dataset
 writexl::write_xlsx(df_plot, here("output", "wdi_incomegroup.xlsx"))
 
 # Line plot
-p_wdi_income <- ggplot(df_plot, aes(x = year, y = GE.EST, group = category, colour = category)) +
+p_wdi_income <- ggplot(df_plot, aes(x = year, y = ALL.EST, group = category, colour = category)) +
   geom_line(size = 1) +
   scale_y_continuous(limits = c(-2, 2)) +
   scale_colour_brewer(palette = "Set1",
                       name = NULL) +
-  labs(title = "Government Effectiveness i ulike inntektsgrupper",
+  labs(title = "GE/RQ/RL/CC i ulike inntektsgrupper",
        subtitle = "Gjennomsnittsscore per gruppe, 1996-2019.",
        caption = "Kilde: World Governance Indicators (WGI), Verdensbanken. Scorevariasjon fra -2,5 til 2,5.",
        x = NULL,
@@ -71,7 +82,7 @@ p_wdi_income <- ggplot(df_plot, aes(x = year, y = GE.EST, group = category, colo
   theme(plot.caption = element_text(hjust = 0))
 
 # Save plot
-ggsave(here("figs", "p_wdi_income.png"), plot = p_wdi_income)
+ggsave(here("figs", "GE_RQ_RL_CC.png"), plot = p_wdi_income)
 
 # Line plot by partner country --------------------------------------------
 
@@ -112,3 +123,9 @@ p_wdi_partnerland <- ggplot(df_plot_partnerland, aes(x = year, y = GE.EST, colou
 
 # Save plot
 ggsave(here("figs", "p_wdi_partnerland.png"), plot = p_wdi_partnerland)
+
+
+# Github ------------------------------------------------------------------
+# credentials::set_github_pat(force_new = TRUE)
+# gitcreds_get()
+
